@@ -5,6 +5,7 @@ import type {
   GanttTaskColor,
   MondayColumnMapping,
   Phase,
+  PlannerResource,
   Sprint,
   SprintGanttData,
 } from "../types/gantt";
@@ -16,10 +17,16 @@ import {
   tasks as mockTasks,
 } from "../data/mockData";
 
+type MondayPersonOrTeam = {
+  id: string;
+  kind: string;
+};
+
 type MondayColumnValue = {
   id: string;
   text: string;
   value: string | null;
+  persons_and_teams?: MondayPersonOrTeam[];
   column: {
     title: string;
     type: string;
@@ -44,6 +51,12 @@ type MondayBoardColumn = {
   settings_str?: string;
 };
 
+type MondayBoardSubscriber = {
+  id: string;
+  name: string;
+  photo_thumb_small?: string | null;
+};
+
 type MondayBoardResponse = {
   boards: Array<{
     id: string;
@@ -52,6 +65,7 @@ type MondayBoardResponse = {
       id: string;
       title: string;
     }>;
+    subscribers: MondayBoardSubscriber[];
     columns: MondayBoardColumn[];
     items_page: {
       items: MondayItem[];
@@ -68,7 +82,7 @@ const defaultColumnMapping: MondayColumnMapping = {
   teamColumnTitle: "Team",
   colorColumnTitle: "Color",
   dependenciesColumnTitle: "Dependencies",
-
+  resourcesColumnTitle: "Resources",
   sprintColumnTitle: "Sprint",
   statusColumnTitle: "Status",
   timelineColumnTitle: "Timeline",
@@ -112,6 +126,7 @@ function getMockSprintGanttData(): SprintGanttData {
     tasks: mockTasks,
     milestones: mockMilestones,
     teamOptions: [],
+    resourceOptions: [],
   };
 }
 
@@ -126,6 +141,11 @@ async function fetchBoardItems(
         groups {
           id
           title
+        }
+        subscribers {
+          id
+          name
+          photo_thumb_small
         }
         columns {
           id
@@ -146,6 +166,12 @@ async function fetchBoardItems(
               id
               text
               value
+              ... on PeopleValue {
+                persons_and_teams {
+                  id
+                  kind
+                }
+              }
               column {
                 title
                 type
@@ -196,6 +222,9 @@ function mapMondayBoardToSprintGanttData(
     mapping.teamColumnTitle
   );
 
+  const resourceOptions = buildResourceOptions(board.subscribers ?? []);
+  console.log("Available planner resources:", resourceOptions);
+
   if (items.length === 0) {
     console.warn("Board has no items. Returning board groups with empty task list.");
 
@@ -205,6 +234,7 @@ function mapMondayBoardToSprintGanttData(
       tasks: [],
       milestones: [],
       teamOptions,
+      resourceOptions,
     };
   }
 
@@ -253,6 +283,13 @@ function mapMondayBoardToSprintGanttData(
         item,
         mapping.dependenciesColumnTitle
       );
+
+      const resources = getResourcesFromPeopleColumn(
+        item,
+        mapping.resourcesColumnTitle,
+        resourceOptions
+      );
+
 
       console.log(
         "Dependency column lookup:",
@@ -314,6 +351,7 @@ function mapMondayBoardToSprintGanttData(
         color: mapPlannerColor(colorText, teamText),
         team: teamText,
         dependencies,
+        resources,
         startPosition,
         endPosition,
         leftPercent: visualPosition.leftPercent,
@@ -328,6 +366,7 @@ function mapMondayBoardToSprintGanttData(
     tasks,
     milestones: [],
     teamOptions,
+    resourceOptions,
   };
 }
 
@@ -445,6 +484,155 @@ function extractTeamOptionsFromColumns(
   });
 
   return Array.from(labels).sort((a, b) => a.localeCompare(b));
+}
+
+function buildResourceOptions(
+  subscribers: MondayBoardSubscriber[]
+): PlannerResource[] {
+  const resourcesById = new Map<string, PlannerResource>();
+
+  subscribers.forEach((subscriber) => {
+    const resourceId = String(subscriber.id).trim();
+    const resourceName = subscriber.name?.trim();
+
+    if (!resourceId || !resourceName) {
+      return;
+    }
+
+    resourcesById.set(resourceId, {
+      id: resourceId,
+      name: resourceName,
+      photoUrl: subscriber.photo_thumb_small ?? undefined,
+    });
+  });
+
+  return Array.from(resourcesById.values()).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+}
+
+function getResourcesFromPeopleColumn(
+  item: MondayItem,
+  columnTitle: string,
+  resourceOptions: PlannerResource[]
+): PlannerResource[] {
+  const column = getColumnValue(item, columnTitle);
+
+  if (!column) {
+    return [];
+  }
+
+  const resourcesById = new Map<string, PlannerResource>(
+    resourceOptions.map((resource) => [resource.id, resource])
+  );
+
+  const structuredAssignments =
+    column.persons_and_teams?.filter(
+      (assignment) => assignment.kind.toLowerCase() === "person"
+    ) ?? [];
+
+  if (structuredAssignments.length > 0) {
+    return structuredAssignments.map((assignment) => {
+      const resourceId = String(assignment.id);
+      const matchingResource = resourcesById.get(resourceId);
+
+      if (matchingResource) {
+        return matchingResource;
+      }
+
+      return {
+        id: resourceId,
+        name: getFallbackResourceName(
+          resourceId,
+          structuredAssignments,
+          column.text
+        ),
+      };
+    });
+  }
+
+  const rawAssignments = parsePeopleColumnValue(column.value);
+
+  return rawAssignments
+    .filter((assignment) => assignment.kind.toLowerCase() === "person")
+    .map((assignment) => {
+      const resourceId = String(assignment.id);
+      const matchingResource = resourcesById.get(resourceId);
+
+      if (matchingResource) {
+        return matchingResource;
+      }
+
+      return {
+        id: resourceId,
+        name: getFallbackResourceName(
+          resourceId,
+          rawAssignments,
+          column.text
+        ),
+      };
+    });
+}
+
+function parsePeopleColumnValue(
+  value: string | null
+): MondayPersonOrTeam[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(value) as {
+      personsAndTeams?: Array<{
+        id?: number | string;
+        kind?: string;
+      }>;
+    };
+
+    if (!Array.isArray(parsedValue.personsAndTeams)) {
+      return [];
+    }
+
+    return parsedValue.personsAndTeams
+      .filter(
+        (
+          assignment
+        ): assignment is {
+          id: number | string;
+          kind?: string;
+        } =>
+          assignment.id !== undefined &&
+          assignment.id !== null
+      )
+      .map((assignment) => ({
+        id: String(assignment.id),
+        kind: assignment.kind ?? "person",
+      }));
+  } catch (error) {
+    console.warn("Unable to parse Resources People column value.", {
+      value,
+      error,
+    });
+
+    return [];
+  }
+}
+
+function getFallbackResourceName(
+  resourceId: string,
+  assignments: MondayPersonOrTeam[],
+  columnText: string
+): string {
+  const displayedNames = columnText
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+  const assignmentIndex = assignments.findIndex(
+    (assignment) => String(assignment.id) === resourceId
+  );
+
+  return displayedNames[assignmentIndex] ?? `Resource ${resourceId}`;
 }
 
 function buildDefaultSprints(totalProjectUnits: number): Sprint[] {

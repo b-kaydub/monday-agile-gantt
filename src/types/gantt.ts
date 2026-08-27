@@ -30,6 +30,7 @@ export type Phase = {
 
   /*
     Actual Monday group ID.
+
     This is required when creating new Monday items inside a swimlane/group.
   */
   mondayGroupId?: string;
@@ -55,36 +56,64 @@ export type GanttTaskColor =
   | "red"
   | "gray";
 
+/*
+  Represents an assignable Monday user.
+
+  id:
+    The Monday user ID used when writing assignments to a People column.
+
+  name:
+    The display name shown in the resource list and Planner Controls.
+
+  photoUrl:
+    Optional profile image returned by Monday.
+*/
+export type PlannerResource = {
+  id: string;
+  name: string;
+  photoUrl?: string;
+};
+
 export type GanttTask = {
   id: string;
   title: string;
 
   /*
     phaseId connects the task to the swimlane.
+
     In this planner model, phaseId maps to a Monday group.
   */
   phaseId: string;
 
   /*
-    sprintId is retained for compatibility with the existing rendering components.
-    The new planner model primarily uses startPosition and endPosition.
+    sprintId is retained for compatibility with the existing rendering
+    components.
+
+    The planner primarily uses startPosition and endPosition.
   */
   sprintId: string;
 
   /*
-    sprintSpan is retained for compatibility with the existing rendering components.
-    The new planner model primarily uses leftPercent and widthPercent.
+    sprintSpan is retained for compatibility with existing rendering
+    components.
+
+    The planner primarily uses leftPercent and widthPercent.
   */
-
   mondayGroupId?: string;
-
-  
   sprintSpan?: number;
 
   status: GanttTaskStatus;
   color: GanttTaskColor;
+
   owner?: string;
   team?: string;
+
+  /*
+    Monday users assigned through the Resources People column.
+
+    Multiple people may be assigned to one planner bar.
+  */
+  resources?: PlannerResource[];
 
   /*
     Controls the vertical order of a team within a swimlane.
@@ -106,24 +135,25 @@ export type GanttTask = {
 
   /*
     Decimal project placement.
+
     Example:
       startPosition: 1.25
       endPosition: 3.5
 
-    This means the bar begins 25% into project column 1
-    and ends halfway through project column 3.
+    This means the bar begins 25% into project column 1 and ends halfway
+    through project column 3.
   */
   startPosition?: number;
   endPosition?: number;
 
   /*
-    Optional date fields for future Timeline support.
+    Optional date fields for future timeline support.
   */
   startDate?: string;
   endDate?: string;
 
   /*
-    Visual rendering fields calculated from startPosition/endPosition.
+    Visual rendering fields calculated from startPosition and endPosition.
   */
   leftPercent?: number;
   widthPercent?: number;
@@ -143,10 +173,12 @@ export type MondayColumnMapping = {
   teamColumnTitle: string;
   colorColumnTitle: string;
   dependenciesColumnTitle: string;
+  resourcesColumnTitle: string;
 
   /*
     Retained for backwards compatibility.
-    We are not relying on these for the new planner model.
+
+    The planner does not rely on these columns for the current model.
   */
   sprintColumnTitle?: string;
   statusColumnTitle?: string;
@@ -199,4 +231,11 @@ export type SprintGanttData = {
   tasks: GanttTask[];
   milestones: Milestone[];
   teamOptions?: string[];
+
+  /*
+    Monday users who may be assigned to planner bars.
+
+    This list will be displayed above the planner and in Planner Controls.
+  */
+  resourceOptions?: PlannerResource[];
 };

@@ -30,6 +30,10 @@ export const requiredPlannerColumns: PlannerColumnDefinition[] = [
     title: "Dependencies",
     type: "text",
   },
+  {
+    title: "Resources",
+    type: "people",
+  },
 ];
 
 type MondayColumn = {
@@ -108,18 +112,11 @@ export async function createPlannerColumn(
 export async function setupPlannerBoard(
   boardId: number | string
 ): Promise<void> {
-  const missingColumns =
-    await getMissingPlannerColumns(boardId);
+  const missingColumns = await getMissingPlannerColumns(boardId);
 
   for (const missingColumn of missingColumns) {
-    console.log(
-      "Creating planner column:",
-      missingColumn
-    );
+    console.log("Creating planner column:", missingColumn);
 
-    await createPlannerColumn(
-      boardId,
-      missingColumn
-    );
+    await createPlannerColumn(boardId, missingColumn);
   }
 }

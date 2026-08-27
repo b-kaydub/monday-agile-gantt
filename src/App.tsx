@@ -14,7 +14,9 @@ import {
   updatePlannerItem,
   updatePlannerItemGroup,
   updatePlannerItemPosition,
+  updatePlannerItemResources,
 } from "./services/mondayWriteService";
+``
 import {
   loadPlannerSettings,
   savePlannerSettings,
@@ -28,6 +30,7 @@ import {
 import type {
   GanttTask,
   GanttTaskColor,
+  PlannerResource,
   SprintGanttData,
   SprintPlanningSettings,
 } from "./types/gantt";
@@ -47,6 +50,7 @@ const fallbackData: SprintGanttData = {
   tasks,
   milestones,
   teamOptions: [],
+  resourceOptions: [],
 };
 
 const defaultSettings: SprintPlanningSettings = {
@@ -290,6 +294,7 @@ function App() {
     team: string;
     color: GanttTaskColor;
     dependencies: string;
+    resourceIds: string[];
   }): Promise<void> {
     if (!boardId) {
       alert("Board ID is not available. Open this app from a Monday board view.");
@@ -305,6 +310,17 @@ function App() {
       (phase) => (phase.mondayGroupId ?? phase.id) === input.groupId
     );
 
+    const nextResources = input.resourceIds.map((resourceId) => {
+      return (
+        data.resourceOptions?.find(
+          (resource) => resource.id === resourceId
+        ) ?? {
+          id: resourceId,
+          name: `Resource ${resourceId}`,
+        }
+      );
+    });
+
     const nextTaskPatch: Partial<GanttTask> = {
       title: input.title,
       description: input.description,
@@ -315,6 +331,7 @@ function App() {
       team: input.team,
       color: input.color,
       dependencies: input.dependencies,
+      resources: nextResources,
       leftPercent: undefined,
       widthPercent: undefined,
     };
@@ -358,6 +375,15 @@ function App() {
           team: input.team,
           color: input.color,
           dependencies: input.dependencies,
+        },
+        defaultPlannerColumnTitles
+      );
+
+      await updatePlannerItemResources(
+        {
+          boardId,
+          itemId: input.itemId,
+          resourceIds: input.resourceIds,
         },
         defaultPlannerColumnTitles
       );
@@ -642,6 +668,113 @@ function App() {
     });
   }
 
+  async function handleTaskResourceDrop(
+    task: GanttTask,
+    resource: PlannerResource
+  ): Promise<void> {
+    if (!boardId) {
+      alert(
+        "Board ID is not available. Open this app from a Monday board view."
+      );
+      return;
+    }
+
+    const previousResources = task.resources ?? [];
+
+    const resourceAlreadyAssigned = previousResources.some(
+      (assignedResource) =>
+        assignedResource.id === resource.id
+    );
+
+    const nextResources = resourceAlreadyAssigned
+      ? previousResources
+      : [...previousResources, resource];
+
+    setData((currentData) => ({
+      ...currentData,
+      tasks: currentData.tasks.map((existingTask) =>
+        existingTask.id === task.id
+          ? {
+              ...existingTask,
+              resources: nextResources,
+            }
+          : existingTask
+      ),
+    }));
+
+    setSelectedTask((currentSelectedTask) => {
+      if (
+        !currentSelectedTask ||
+        currentSelectedTask.id !== task.id
+      ) {
+        return {
+          ...task,
+          resources: nextResources,
+        };
+      }
+
+      return {
+        ...currentSelectedTask,
+        resources: nextResources,
+      };
+    });
+
+    if (resourceAlreadyAssigned) {
+      return;
+    }
+
+    try {
+      await updatePlannerItemResources(
+        {
+          boardId,
+          itemId: task.id,
+          resourceIds: nextResources.map(
+            (assignedResource) => assignedResource.id
+          ),
+        },
+        defaultPlannerColumnTitles
+      );
+    } catch (error) {
+      console.error(
+        "Failed to assign resource to planner bar.",
+        error
+      );
+
+      setData((currentData) => ({
+        ...currentData,
+        tasks: currentData.tasks.map((existingTask) =>
+          existingTask.id === task.id
+            ? {
+                ...existingTask,
+                resources: previousResources,
+              }
+            : existingTask
+        ),
+      }));
+
+      setSelectedTask((currentSelectedTask) => {
+        if (
+          !currentSelectedTask ||
+          currentSelectedTask.id !== task.id
+        ) {
+          return currentSelectedTask;
+        }
+
+        return {
+          ...currentSelectedTask,
+          resources: previousResources,
+        };
+      });
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unknown error while assigning the resource.";
+
+      alert(`Failed to assign resource:\n\n${message}`);
+    }
+  }
+
   function handleTaskClick(task: GanttTask) {
     setSelectedTask(task);
   }
@@ -736,6 +869,7 @@ function App() {
         phases={displayData.phases}
         tasks={displayData.tasks}
         teamOptions={displayData.teamOptions ?? []}
+        resourceOptions={displayData.resourceOptions ?? []}
         settings={settings}
         isBusy={isBusy}
         selectedTask={selectedTask}
@@ -763,6 +897,7 @@ function App() {
           onTaskOpen={handleOpenTaskItem}
           onTaskPositionChange={handleTaskPositionChange}
           onTaskGroupChange={handleTaskGroupChange}
+          onTaskResourceDrop={handleTaskResourceDrop}
         />
       </main>
     </div>

@@ -58,6 +58,12 @@ export type UpdatePlannerItemPositionInput = {
   endSprint: number;
 };
 
+export type UpdatePlannerItemResourcesInput = {
+  boardId: number | string;
+  itemId: string;
+  resourceIds: string[];
+};
+
 export type PlannerColumnTitles = {
   descriptionColumnTitle: string;
   startSprintColumnTitle: string;
@@ -65,6 +71,7 @@ export type PlannerColumnTitles = {
   teamColumnTitle: string;
   colorColumnTitle: string;
   dependenciesColumnTitle: string;
+  resourcesColumnTitle: string;
 };
 
 export const defaultPlannerColumnTitles: PlannerColumnTitles = {
@@ -74,6 +81,7 @@ export const defaultPlannerColumnTitles: PlannerColumnTitles = {
   teamColumnTitle: "Team",
   colorColumnTitle: "Color",
   dependenciesColumnTitle: "Dependencies",
+  resourcesColumnTitle: "Resources",
 };
 
 export async function deletePlannerItem(
@@ -312,6 +320,90 @@ export async function updatePlannerItemPosition(
     columnValues,
     actionName: "update planner item position",
   });
+}
+
+export async function updatePlannerItemResources(
+  input: UpdatePlannerItemResourcesInput,
+  columnTitles: PlannerColumnTitles = defaultPlannerColumnTitles
+): Promise<void> {
+  console.log("Updating planner item resources:", input);
+
+  const columns = await fetchBoardColumns(input.boardId);
+
+  const resourcesColumn = columns.find(
+    (column) =>
+      column.title.trim().toLowerCase() ===
+      columnTitles.resourcesColumnTitle.trim().toLowerCase()
+  );
+
+  if (!resourcesColumn) {
+    throw new Error(
+      `Resources column not found: ${columnTitles.resourcesColumnTitle}`
+    );
+  }
+
+  if (resourcesColumn.type !== "people") {
+    throw new Error(
+      `The ${resourcesColumn.title} column must be a People column. ` +
+        `Current type: ${resourcesColumn.type}`
+    );
+  }
+
+  const uniqueResourceIds = Array.from(
+    new Set(
+      input.resourceIds
+        .map((resourceId) => String(resourceId).trim())
+        .filter(Boolean)
+    )
+  );
+
+  const columnValue = {
+    personsAndTeams: uniqueResourceIds.map((resourceId) => ({
+      id: Number(resourceId),
+      kind: "person",
+    })),
+  };
+
+  if (
+    columnValue.personsAndTeams.some(
+      (assignment) => !Number.isFinite(assignment.id)
+    )
+  ) {
+    throw new Error(
+      "One or more Resources contain an invalid Monday user ID."
+    );
+  }
+
+  const mutation = `
+    mutation UpdatePlannerItemResources(
+      $boardId: ID!,
+      $itemId: ID!,
+      $columnId: String!,
+      $value: JSON!
+    ) {
+      change_column_value(
+        board_id: $boardId,
+        item_id: $itemId,
+        column_id: $columnId,
+        value: $value
+      ) {
+        id
+      }
+    }
+  `;
+
+  const response = await monday.api(mutation, {
+    variables: {
+      boardId: String(input.boardId),
+      itemId: String(input.itemId),
+      columnId: resourcesColumn.id,
+      value: JSON.stringify(columnValue),
+    },
+  });
+
+  console.log("Update Resources response:", response);
+
+  throwIfMondayErrors(response, "update planner item Resources");
 }
 
 export async function updatePlannerItemDependencies(

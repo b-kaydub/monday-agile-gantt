@@ -6,6 +6,7 @@ import type {
   GanttTaskColor,
   Phase,
   PlannerProjectColumn,
+  PlannerResource,
   SprintPlanningSettings,
 } from "../types/gantt";
 
@@ -19,6 +20,7 @@ type PlannerUpdateTaskInput = {
   team: string;
   color: GanttTaskColor;
   dependencies: string;
+  resourceIds: string[];
 };
 
 type PlannerCreateTaskInput = {
@@ -37,6 +39,7 @@ type PlannerControlPanelProps = {
   phases: Phase[];
   tasks: GanttTask[];
   teamOptions: string[];
+  resourceOptions: PlannerResource[];
   settings: SprintPlanningSettings;
   isBusy: boolean;
   selectedTask: GanttTask | null;
@@ -66,6 +69,7 @@ export function PlannerControlPanel({
   phases,
   tasks,
   teamOptions,
+  resourceOptions,
   settings,
   isBusy,
   selectedTask,
@@ -106,6 +110,7 @@ export function PlannerControlPanel({
   const [editEndSprint, setEditEndSprint] = useState("1");
   const [editTeam, setEditTeam] = useState("");
   const [editDependencies, setEditDependencies] = useState("");
+  const [editResourceIds, setEditResourceIds] = useState<string[]>([]);
   const [newEditTeamName, setNewEditTeamName] = useState("");
 
   const selectedPhaseOptions = useMemo(() => {
@@ -265,7 +270,15 @@ const availableTeamOptions = useMemo(() => {
     setEditEndSprint(String(selectedTask.endPosition ?? 1));
     setEditTeam(selectedTask.team ?? "");
     setEditDependencies(selectedTask.dependencies ?? "");
-
+    setEditResourceIds(
+      Array.from(
+        new Set(
+          (selectedTask.resources ?? [])
+            .map((resource) => String(resource.id).trim())
+            .filter(Boolean)
+        )
+      )
+    );
     setOpenSections((currentSections) => ({
       ...currentSections,
       selectedBar: true,
@@ -393,6 +406,7 @@ const availableTeamOptions = useMemo(() => {
       team: editTeam,
       color: assignedColor,
       dependencies: editDependencies,
+      resourceIds: editResourceIds,
     });
   }
 
@@ -721,6 +735,12 @@ const availableTeamOptions = useMemo(() => {
                 onAddTeam={handleAddEditTeam}
               />
 
+              <ResourcePicker
+                resources={resourceOptions}
+                selectedResourceIds={editResourceIds}
+                onChange={setEditResourceIds}
+              />
+
               <DependencyPicker
                 label="Dependencies"
                 tasks={editDependencyOptions}
@@ -1047,6 +1067,133 @@ function TeamSelectWithAdd({
       </div>
     </div>
   );
+}
+
+function ResourcePicker({
+  resources,
+  selectedResourceIds,
+  onChange,
+}: {
+  resources: PlannerResource[];
+  selectedResourceIds: string[];
+  onChange: (nextResourceIds: string[]) => void;
+}) {
+  function toggleResource(resourceId: string) {
+    const normalizedResourceId = String(resourceId);
+
+    if (selectedResourceIds.includes(normalizedResourceId)) {
+      onChange(
+        selectedResourceIds.filter(
+          (selectedResourceId) =>
+            selectedResourceId !== normalizedResourceId
+        )
+      );
+      return;
+    }
+
+    onChange([...selectedResourceIds, normalizedResourceId]);
+  }
+
+  function removeResource(resourceId: string) {
+    onChange(
+      selectedResourceIds.filter(
+        (selectedResourceId) => selectedResourceId !== resourceId
+      )
+    );
+  }
+
+  const selectedResources = selectedResourceIds.map((resourceId) => {
+    return (
+      resources.find((resource) => resource.id === resourceId) ?? {
+        id: resourceId,
+        name: `Resource ${resourceId}`,
+      }
+    );
+  });
+
+  return (
+    <div className="resource-picker">
+      <div className="resource-picker-label">Resources</div>
+
+      {selectedResources.length > 0 && (
+        <div className="selected-resource-list">
+          {selectedResources.map((resource) => (
+            <div
+              key={resource.id}
+              className="selected-resource-chip"
+            >
+              <span className="resource-avatar resource-avatar-fallback">
+                {getResourceInitials(resource.name)}
+              </span>
+
+              <span className="selected-resource-name">
+                {resource.name}
+              </span>
+
+              <button
+                type="button"
+                className="selected-resource-remove"
+                onClick={() => removeResource(resource.id)}
+                aria-label={`Remove ${resource.name}`}
+                title={`Remove ${resource.name}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {resources.length === 0 ? (
+        <div className="resource-picker-empty">
+          No board resources were returned by Monday.
+        </div>
+      ) : (
+        <div className="resource-picker-list">
+          {resources.map((resource) => (
+            <label
+              key={resource.id}
+              className="resource-picker-option"
+            >
+              <input
+                type="checkbox"
+                checked={selectedResourceIds.includes(
+                  resource.id
+                )}
+                onChange={() => toggleResource(resource.id)}
+              />
+
+              <span className="resource-avatar resource-avatar-fallback">
+                {getResourceInitials(resource.name)}
+              </span>
+
+              <span className="resource-picker-name">
+                {resource.name}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getResourceInitials(name: string): string {
+  const nameParts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (nameParts.length === 0) {
+    return "?";
+  }
+
+  return nameParts
+    .slice(0, 2)
+    .map((namePart) =>
+      namePart.charAt(0).toUpperCase()
+    )
+    .join("");
 }
 
 function DependencyPicker({

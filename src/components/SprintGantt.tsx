@@ -6,6 +6,7 @@ import type {
   GanttTask,
   Phase,
   PlannerProjectColumn,
+  PlannerResource,
   Sprint,
   SprintGanttData,
   SprintPlanningSettings,
@@ -31,6 +32,10 @@ type SprintGanttProps = {
       phaseId: string;
       mondayGroupId?: string;
     }
+  ) => void | Promise<void>;
+  onTaskResourceDrop?: (
+    task: GanttTask,
+    resource: PlannerResource
   ) => void | Promise<void>;
 };
 
@@ -86,6 +91,7 @@ export function SprintGantt({
   onTaskOpen,
   onTaskPositionChange,
   onTaskGroupChange,
+  onTaskResourceDrop,
 }: SprintGanttProps) {
   const [taskContextMenu, setTaskContextMenu] =
     useState<TaskContextMenuState>(null);
@@ -101,6 +107,7 @@ export function SprintGantt({
   >({});
 
   const { phases, sprints, tasks } = data;
+  const resourceOptions = data.resourceOptions ?? [];
   const { displayOptions } = settings;
 
   useEffect(() => {
@@ -387,6 +394,10 @@ export function SprintGantt({
           {displayOptions.showLegend && settings.teamLegend.length > 0 && (
             <Legend settings={settings} />
           )}
+
+          {resourceOptions.length > 0 && (
+            <ResourceStrip resources={resourceOptions} />
+          )}
         </div>
       )}
 
@@ -425,7 +436,9 @@ export function SprintGantt({
               onTaskDragStart={handleTaskDragStart}
               onTaskDragMove={handleTaskDragMove}
               onTaskDragEnd={handleTaskDragEnd}
+              onTaskResourceDrop={onTaskResourceDrop}
             />
+
           );
         })}
         <DependencyOverlay
@@ -474,6 +487,82 @@ function Legend({ settings }: { settings: SprintPlanningSettings }) {
   );
 }
 
+function ResourceStrip({
+  resources,
+}: {
+  resources: PlannerResource[];
+}) {
+  function handleResourceDragStart(
+    event: React.DragEvent<HTMLButtonElement>,
+    resource: PlannerResource
+  ) {
+    event.dataTransfer.effectAllowed = "copy";
+
+    event.dataTransfer.setData(
+      "application/x-planner-resource",
+      JSON.stringify(resource)
+    );
+
+    event.dataTransfer.setData(
+      "text/plain",
+      resource.id
+    );
+  }
+
+  return (
+    <div className="planner-resource-strip">
+      <div className="planner-resource-strip-label">
+        Resources
+      </div>
+
+      <div className="planner-resource-strip-list">
+        {resources.map((resource) => (
+          <button
+            key={resource.id}
+            type="button"
+            className="planner-resource-chip"
+            draggable
+            onDragStart={(event) =>
+              handleResourceDragStart(event, resource)
+            }
+            title={`Drag ${resource.name} onto a planner bar`}
+          >
+            <span className="planner-resource-chip-avatar">
+              {getResourceInitials(resource.name)}
+            </span>
+
+            <span className="planner-resource-chip-name">
+              {resource.name}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="planner-resource-strip-help">
+        Drag a resource onto a bar to assign the resource.
+      </div>
+    </div>
+  );
+}
+
+function getResourceInitials(name: string): string {
+  const nameParts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (nameParts.length === 0) {
+    return "?";
+  }
+
+  return nameParts
+    .slice(0, 2)
+    .map((namePart) =>
+      namePart.charAt(0).toUpperCase()
+    )
+    .join("");
+}
+
 function SprintHeader({
   sprints,
   showSprintLabels,
@@ -513,6 +602,7 @@ function PackedSwimlane({
   onTaskDragStart,
   onTaskDragMove,
   onTaskDragEnd,
+  onTaskResourceDrop,
 }: {
   phase: Phase;
   phaseIndex: number;
@@ -536,7 +626,12 @@ function PackedSwimlane({
     event: React.PointerEvent<HTMLButtonElement | HTMLSpanElement>,
     task: GanttTask
   ) => void | Promise<void>;
+  onTaskResourceDrop?: (
+    task: GanttTask,
+    resource: PlannerResource
+  ) => void | Promise<void>;
 }) {
+
   const packedTasks = packTasksIntoRows(tasks);
 
   const rowCount = Math.max(
@@ -599,6 +694,7 @@ function PackedSwimlane({
               onTaskDragStart={onTaskDragStart}
               onTaskDragMove={onTaskDragMove}
               onTaskDragEnd={onTaskDragEnd}
+              onTaskResourceDrop={onTaskResourceDrop}
             />
           );
         })}
@@ -628,6 +724,7 @@ function TaskBox({
   onTaskDragStart,
   onTaskDragMove,
   onTaskDragEnd,
+  onTaskResourceDrop,
 }: {
   task: GanttTask;
   renderTask: GanttTask;
@@ -649,8 +746,16 @@ function TaskBox({
     event: React.PointerEvent<HTMLButtonElement | HTMLSpanElement>,
     task: GanttTask
   ) => void | Promise<void>;
+  onTaskResourceDrop?: (
+    task: GanttTask,
+    resource: PlannerResource
+  ) => void | Promise<void>;
 }) {
-  function handleContextMenu(event: React.MouseEvent<HTMLButtonElement>) {
+  const [isResourceDragOver, setIsResourceDragOver] = useState(false);
+
+  function handleContextMenu(
+    event: React.MouseEvent<HTMLButtonElement>
+  ) {
     event.preventDefault();
     event.stopPropagation();
 
@@ -661,15 +766,98 @@ function TaskBox({
     });
   }
 
+  function handleResourceDragOver(
+    event: React.DragEvent<HTMLButtonElement>
+  ) {
+    if (!onTaskResourceDrop) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+
+    setIsResourceDragOver(true);
+  }
+
+  function handleResourceDragLeave(
+    event: React.DragEvent<HTMLButtonElement>
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const nextTarget = event.relatedTarget;
+
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
+
+    setIsResourceDragOver(false);
+  }
+
+  async function handleResourceDrop(
+    event: React.DragEvent<HTMLButtonElement>
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setIsResourceDragOver(false);
+
+    if (!onTaskResourceDrop) {
+      return;
+    }
+
+    const serializedResource = event.dataTransfer.getData(
+      "application/x-planner-resource"
+    );
+
+    if (!serializedResource) {
+      return;
+    }
+
+    try {
+      const parsedResource = JSON.parse(
+        serializedResource
+      ) as PlannerResource;
+
+      if (!parsedResource.id || !parsedResource.name) {
+        return;
+      }
+
+      await onTaskResourceDrop(task, {
+        id: String(parsedResource.id),
+        name: String(parsedResource.name),
+        photoUrl: parsedResource.photoUrl,
+      });
+    } catch (error) {
+      console.error(
+        "Unable to read dropped planner resource.",
+        error
+      );
+    }
+  }
+
+  const taskClassNames = [
+    "packed-task-box",
+    `task-color-${renderTask.color}`,
+  ];
+
+  if (isSelected) {
+    taskClassNames.push("packed-task-box-selected");
+  }
+
+  if (isResourceDragOver) {
+    taskClassNames.push("packed-task-box-resource-target");
+  }
+
   return (
     <button
       type="button"
       data-task-id={task.id}
-      className={
-        isSelected
-          ? `packed-task-box packed-task-box-selected task-color-${renderTask.color}`
-          : `packed-task-box task-color-${renderTask.color}`
-}
+      className={taskClassNames.join(" ")}
       style={{
         left: `${leftPercent}%`,
         width: `${widthPercent}%`,
@@ -687,10 +875,20 @@ function TaskBox({
           mode: "move",
         })
       }
-      onPointerMove={(event) => onTaskDragMove(event, task)}
-      onPointerUp={(event) => onTaskDragEnd(event, task)}
-      onPointerCancel={(event) => onTaskDragEnd(event, task)}
+      onPointerMove={(event) =>
+        onTaskDragMove(event, task)
+      }
+      onPointerUp={(event) =>
+        onTaskDragEnd(event, task)
+      }
+      onPointerCancel={(event) =>
+        onTaskDragEnd(event, task)
+      }
       onContextMenu={handleContextMenu}
+      onDragOver={handleResourceDragOver}
+      onDragEnter={handleResourceDragOver}
+      onDragLeave={handleResourceDragLeave}
+      onDrop={handleResourceDrop}
     >
       <span
         className="packed-task-resize-handle packed-task-resize-handle-left"
@@ -701,12 +899,20 @@ function TaskBox({
             mode: "resize-left",
           })
         }
-        onPointerMove={(event) => onTaskDragMove(event, task)}
-        onPointerUp={(event) => onTaskDragEnd(event, task)}
-        onPointerCancel={(event) => onTaskDragEnd(event, task)}
+        onPointerMove={(event) =>
+          onTaskDragMove(event, task)
+        }
+        onPointerUp={(event) =>
+          onTaskDragEnd(event, task)
+        }
+        onPointerCancel={(event) =>
+          onTaskDragEnd(event, task)
+        }
       />
 
-      <span className="packed-task-title">{renderTask.title}</span>
+      <span className="packed-task-title">
+        {renderTask.title}
+      </span>
 
       <span
         className="packed-task-resize-handle packed-task-resize-handle-right"
@@ -717,9 +923,15 @@ function TaskBox({
             mode: "resize-right",
           })
         }
-        onPointerMove={(event) => onTaskDragMove(event, task)}
-        onPointerUp={(event) => onTaskDragEnd(event, task)}
-        onPointerCancel={(event) => onTaskDragEnd(event, task)}
+        onPointerMove={(event) =>
+          onTaskDragMove(event, task)
+        }
+        onPointerUp={(event) =>
+          onTaskDragEnd(event, task)
+        }
+        onPointerCancel={(event) =>
+          onTaskDragEnd(event, task)
+        }
       />
     </button>
   );
