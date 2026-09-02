@@ -7,6 +7,7 @@ import type {
   Phase,
   PlannerProjectColumn,
   PlannerResource,
+  ResourceConflictSummary,
   Sprint,
   SprintGanttData,
   SprintPlanningSettings,
@@ -16,6 +17,7 @@ type SprintGanttProps = {
   data: SprintGanttData;
   sourceLabel?: string;
   settings: SprintPlanningSettings;
+  resourceConflicts: ResourceConflictSummary[];
   selectedTaskId?: string | null;
   onTaskClick?: (task: GanttTask) => void;
   onTaskOpen?: (task: GanttTask) => void;
@@ -86,6 +88,7 @@ export function SprintGantt({
   data,
   sourceLabel = "Mock Data",
   settings,
+  resourceConflicts,
   selectedTaskId = null,
   onTaskClick,
   onTaskOpen,
@@ -107,7 +110,12 @@ export function SprintGantt({
   >({});
 
   const { phases, sprints, tasks } = data;
-  const resourceOptions = data.resourceOptions ?? [];
+
+  const resourceOptions =
+    settings.resourceDirectory.length > 0
+      ? settings.resourceDirectory
+      : data.resourceOptions ?? [];
+
   const { displayOptions } = settings;
 
   useEffect(() => {
@@ -396,7 +404,10 @@ export function SprintGantt({
           )}
 
           {resourceOptions.length > 0 && (
-            <ResourceStrip resources={resourceOptions} />
+            <ResourceStrip
+              resources={resourceOptions}
+              resourceConflicts={resourceConflicts}
+            />
           )}
         </div>
       )}
@@ -489,8 +500,10 @@ function Legend({ settings }: { settings: SprintPlanningSettings }) {
 
 function ResourceStrip({
   resources,
+  resourceConflicts,
 }: {
   resources: PlannerResource[];
+  resourceConflicts: ResourceConflictSummary[];
 }) {
   function handleResourceDragStart(
     event: React.DragEvent<HTMLButtonElement>,
@@ -509,6 +522,14 @@ function ResourceStrip({
     );
   }
 
+  function getResourceConflict(
+    resourceId: string
+  ): ResourceConflictSummary | undefined {
+    return resourceConflicts.find(
+      (conflict) => conflict.resourceId === resourceId
+    );
+  }
+
   return (
     <div className="planner-resource-strip">
       <div className="planner-resource-strip-label">
@@ -516,30 +537,60 @@ function ResourceStrip({
       </div>
 
       <div className="planner-resource-strip-list">
-        {resources.map((resource) => (
-          <button
-            key={resource.id}
-            type="button"
-            className="planner-resource-chip"
-            draggable
-            onDragStart={(event) =>
-              handleResourceDragStart(event, resource)
-            }
-            title={`Drag ${resource.name} onto a planner bar`}
-          >
-            <span className="planner-resource-chip-avatar">
-              {getResourceInitials(resource.name)}
-            </span>
+        {resources.map((resource) => {
+          const conflict = getResourceConflict(resource.id);
+          const hasConflict = conflict?.hasConflict ?? false;
 
-            <span className="planner-resource-chip-name">
-              {resource.name}
-            </span>
-          </button>
-        ))}
+          const resourceTitle = hasConflict
+            ? `${resource.name}\n⚠ Resource conflict\nMaximum concurrent assignments: ${conflict?.maxConcurrentAssignments ?? 0}\nCapacity: ${conflict?.capacity ?? 1}`
+            : `${resource.name}\nCapacity: ${conflict?.capacity ?? 1}`;
+
+          return (
+            <button
+              key={resource.id}
+              type="button"
+              className={
+                hasConflict
+                  ? "planner-resource-chip planner-resource-chip-conflict"
+                  : "planner-resource-chip"
+              }
+              draggable
+              onDragStart={(event) =>
+                handleResourceDragStart(event, resource)
+              }
+              title={resourceTitle}
+            >
+              <span className="planner-resource-chip-avatar">
+                {getResourceInitials(resource.name)}
+              </span>
+
+              <span className="planner-resource-chip-name">
+                {resource.name}
+              </span>
+
+              {hasConflict && (
+                <span
+                  className="planner-resource-conflict-warning"
+                  aria-label="Resource conflict"
+                >
+                  ⚠
+                </span>
+              )}
+
+              {conflict && (
+                <span className="planner-resource-utilization">
+                  {conflict.maxConcurrentAssignments}/{conflict.capacity}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="planner-resource-strip-help">
         Drag a resource onto a bar to assign the resource.
+        {" "}
+        ⚠ indicates overlapping assignments above capacity.
       </div>
     </div>
   );

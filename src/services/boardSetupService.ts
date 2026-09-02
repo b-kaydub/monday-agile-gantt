@@ -32,7 +32,7 @@ export const requiredPlannerColumns: PlannerColumnDefinition[] = [
   },
   {
     title: "Resources",
-    type: "people",
+    type: "text",
   },
 ];
 

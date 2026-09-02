@@ -333,7 +333,9 @@ export async function updatePlannerItemResources(
   const resourcesColumn = columns.find(
     (column) =>
       column.title.trim().toLowerCase() ===
-      columnTitles.resourcesColumnTitle.trim().toLowerCase()
+      columnTitles.resourcesColumnTitle
+        .trim()
+        .toLowerCase()
   );
 
   if (!resourcesColumn) {
@@ -342,49 +344,23 @@ export async function updatePlannerItemResources(
     );
   }
 
-  if (resourcesColumn.type !== "people") {
-    throw new Error(
-      `The ${resourcesColumn.title} column must be a People column. ` +
-        `Current type: ${resourcesColumn.type}`
-    );
-  }
+  const resourceNames =
+    input.resourceIds;
 
-  const uniqueResourceIds = Array.from(
-    new Set(
-      input.resourceIds
-        .map((resourceId) => String(resourceId).trim())
-        .filter(Boolean)
-    )
-  );
-
-  const columnValue = {
-    personsAndTeams: uniqueResourceIds.map((resourceId) => ({
-      id: Number(resourceId),
-      kind: "person",
-    })),
-  };
-
-  if (
-    columnValue.personsAndTeams.some(
-      (assignment) => !Number.isFinite(assignment.id)
-    )
-  ) {
-    throw new Error(
-      "One or more Resources contain an invalid Monday user ID."
-    );
-  }
+  const resourceValue =
+    resourceNames.join("|");
 
   const mutation = `
     mutation UpdatePlannerItemResources(
       $boardId: ID!,
       $itemId: ID!,
       $columnId: String!,
-      $value: JSON!
+      $value: String!
     ) {
-      change_column_value(
-        board_id: $boardId,
-        item_id: $itemId,
-        column_id: $columnId,
+      change_simple_column_value(
+        board_id: $boardId
+        item_id: $itemId
+        column_id: $columnId
         value: $value
       ) {
         id
@@ -392,18 +368,22 @@ export async function updatePlannerItemResources(
     }
   `;
 
-  const response = await monday.api(mutation, {
-    variables: {
-      boardId: String(input.boardId),
-      itemId: String(input.itemId),
-      columnId: resourcesColumn.id,
-      value: JSON.stringify(columnValue),
-    },
-  });
+  const response = await monday.api(
+    mutation,
+    {
+      variables: {
+        boardId: String(input.boardId),
+        itemId: String(input.itemId),
+        columnId: resourcesColumn.id,
+        value: resourceValue,
+      },
+    }
+  );
 
-  console.log("Update Resources response:", response);
-
-  throwIfMondayErrors(response, "update planner item Resources");
+  throwIfMondayErrors(
+    response,
+    "update planner item Resources"
+  );
 }
 
 export async function updatePlannerItemDependencies(

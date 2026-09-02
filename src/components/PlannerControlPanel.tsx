@@ -112,6 +112,7 @@ export function PlannerControlPanel({
   const [editDependencies, setEditDependencies] = useState("");
   const [editResourceIds, setEditResourceIds] = useState<string[]>([]);
   const [newEditTeamName, setNewEditTeamName] = useState("");
+  const [newResourceName, setNewResourceName] = useState("");
 
   const selectedPhaseOptions = useMemo(() => {
     return phases.map((phase) => ({
@@ -284,6 +285,64 @@ const availableTeamOptions = useMemo(() => {
       selectedBar: true,
     }));
   }, [selectedTask, phases]);
+
+  function updateResourceCapacity(
+    resourceId: string,
+    capacity: number
+  ) {
+    const normalizedCapacity = Math.max(
+      1,
+      Math.floor(capacity)
+    );
+
+    onSettingsChange({
+      ...settings,
+
+      resourceCapacities: {
+        ...settings.resourceCapacities,
+
+        [resourceId]:normalizedCapacity,
+      },
+    });
+  }
+
+  function addResource() {
+  const trimmedName = newResourceName.trim();
+
+  if (!trimmedName) {
+    return;
+  }
+
+  const resourceId =
+    createStableId(trimmedName);
+
+  const alreadyExists =
+    settings.resourceDirectory.some(
+      (resource) =>
+        resource.id === resourceId
+    );
+
+  if (alreadyExists) {
+    alert(
+      `${trimmedName} already exists.`
+    );
+    return;
+  }
+
+  onSettingsChange({
+    ...settings,
+
+    resourceDirectory: [
+      ...settings.resourceDirectory,
+      {
+        id: resourceId,
+        name: trimmedName,
+      },
+    ],
+  });
+
+  setNewResourceName("");
+}
 
   function toggleSection(sectionKey: SectionKey) {
     setOpenSections((currentSections) => ({
@@ -506,6 +565,11 @@ const availableTeamOptions = useMemo(() => {
       projectColumns: resizeProjectColumns([], settings.totalProjectUnits),
     });
   }
+
+  const effectiveResources =
+  settings.resourceDirectory.length > 0
+    ? settings.resourceDirectory
+    : resourceOptions;
 
   return (
     <div
@@ -736,7 +800,7 @@ const availableTeamOptions = useMemo(() => {
               />
 
               <ResourcePicker
-                resources={resourceOptions}
+                resources={effectiveResources}
                 selectedResourceIds={editResourceIds}
                 onChange={setEditResourceIds}
               />
@@ -874,6 +938,73 @@ const availableTeamOptions = useMemo(() => {
             disabled={isBusy || !boardId}
           >
             Create Bar
+          </button>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="Resources"
+          isOpen={true}
+          onToggle={() => {}}
+        >
+          {effectiveResources.length === 0 ? (
+            <div className="panel-help-text">
+              No resources have been created yet.
+            </div>
+          ) : (
+            effectiveResources.map((resource) => (
+              <label
+                key={resource.id}
+                className="panel-label"
+              >
+                {resource.name}
+
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="panel-input"
+                  value={
+                    settings.resourceCapacities[
+                      resource.id
+                    ] ?? 1
+                  }
+                  onChange={(event) =>
+                    updateResourceCapacity(
+                      resource.id,
+                      Number(event.target.value)
+                    )
+                  }
+                />
+              </label>
+            ))
+          )}
+
+          <div className="panel-help-text">
+            Add resources that can be assigned to planner bars.
+          </div>
+
+          <label className="panel-label">
+            New Resource
+
+            <input
+              className="panel-input"
+              value={newResourceName}
+              onChange={(event) =>
+                setNewResourceName(
+                  event.target.value
+                )
+              }
+              placeholder="Michael Clarke"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="panel-primary-button"
+            onClick={addResource}
+            disabled={!newResourceName.trim()}
+          >
+            Add Resource
           </button>
         </CollapsibleSection>
 

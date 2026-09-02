@@ -88,6 +88,10 @@ const defaultSettings: SprintPlanningSettings = {
       color: "green",
     },
   ],
+
+  resourceCapacities: {},
+
+  resourceDirectory: [],
 };
 
 function App() {
@@ -107,6 +111,13 @@ function App() {
   const [missingColumns, setMissingColumns] = useState<
     PlannerColumnDefinition[]
   >([]);
+
+  const resourceConflicts = useMemo(() => {
+    return buildResourceConflictSummary(
+      data.tasks,
+      settings.resourceCapacities
+    );
+  }, [data.tasks, settings.resourceCapacities]);
 
   const displayData = useMemo(() => {
     return data;
@@ -178,8 +189,20 @@ function App() {
             ...defaultSettings.displayOptions,
             ...savedSettings.displayOptions,
           },
-          teamLegend: savedSettings.teamLegend ?? defaultSettings.teamLegend,
-          projectColumns: savedSettings.projectColumns ?? [],
+          teamLegend:
+            savedSettings.teamLegend ??
+            defaultSettings.teamLegend,
+
+          projectColumns:
+            savedSettings.projectColumns ?? [],
+
+          resourceCapacities:
+            savedSettings.resourceCapacities ??
+            {},
+
+          resourceDirectory:
+            savedSettings.resourceDirectory ??
+            [],
         });
       }
 
@@ -729,7 +752,8 @@ function App() {
           boardId,
           itemId: task.id,
           resourceIds: nextResources.map(
-            (assignedResource) => assignedResource.id
+            (assignedResource) =>
+              assignedResource.name
           ),
         },
         defaultPlannerColumnTitles
@@ -886,12 +910,21 @@ function App() {
       <main className="planner-main">
         <div className="planner-debug-bar">
           Debug: {debugInfo}
+          {" | "}
+          Conflicted Resources:
+          {" "}
+          {
+            resourceConflicts.filter(
+              (resource) => resource.hasConflict
+            ).length
+          }
         </div>
 
         <SprintGantt
           data={displayData}
           sourceLabel={sourceLabel}
           settings={settings}
+          resourceConflicts={resourceConflicts}
           selectedTaskId={selectedTask?.id ?? null}
           onTaskClick={handleTaskClick}
           onTaskOpen={handleOpenTaskItem}
@@ -902,6 +935,96 @@ function App() {
       </main>
     </div>
   );
+}
+
+function buildResourceConflictSummary(
+  tasks: GanttTask[],
+  capacities: Record<string, number>
+) {
+  const summaries = new Map<
+    string,
+    {
+      resourceId: string;
+      resourceName: string;
+      capacity: number;
+      assignedTaskIds: string[];
+      conflictingTaskIds: string[];
+      maxConcurrentAssignments: number;
+      hasConflict: boolean;
+    }
+  >();
+
+  tasks.forEach((task) => {
+    (task.resources ?? []).forEach((resource) => {
+      if (!summaries.has(resource.id)) {
+        summaries.set(resource.id, {
+          resourceId: resource.id,
+          resourceName: resource.name,
+          capacity: capacities[resource.id] ?? 1,
+          assignedTaskIds: [],
+          conflictingTaskIds: [],
+          maxConcurrentAssignments: 0,
+          hasConflict: false,
+        });
+      }
+
+      summaries.get(resource.id)?.assignedTaskIds.push(task.id);
+    });
+  });
+
+  summaries.forEach((summary) => {
+    const resourceTasks = tasks.filter((task) =>
+      (task.resources ?? []).some(
+        (resource) => resource.id === summary.resourceId
+      )
+    );
+
+    resourceTasks.forEach((task) => {
+      const overlappingTasks = resourceTasks.filter((otherTask) => {
+        if (otherTask.id === task.id) {
+          return true;
+        }
+
+        const taskStart = task.startPosition ?? 0;
+        const taskEnd = task.endPosition ?? taskStart + 1;
+
+        const otherStart = otherTask.startPosition ?? 0;
+        const otherEnd =
+          otherTask.endPosition ?? otherStart + 1;
+
+        return (
+          taskStart < otherEnd &&
+          taskEnd > otherStart
+        );
+      });
+
+      summary.maxConcurrentAssignments = Math.max(
+        summary.maxConcurrentAssignments,
+        overlappingTasks.length
+      );
+
+      if (
+        overlappingTasks.length >
+        summary.capacity
+      ) {
+        summary.hasConflict = true;
+
+        overlappingTasks.forEach((conflictingTask) => {
+          if (
+            !summary.conflictingTaskIds.includes(
+              conflictingTask.id
+            )
+          ) {
+            summary.conflictingTaskIds.push(
+              conflictingTask.id
+            );
+          }
+        });
+      }
+    });
+  });
+
+  return Array.from(summaries.values());
 }
 
 export default App;

@@ -74,6 +74,21 @@ export type PlannerResource = {
   photoUrl?: string;
 };
 
+export type ResourceConflictSummary = {
+  resourceId: string;
+  resourceName: string;
+
+  capacity: number;
+
+  assignedTaskIds: string[];
+
+  conflictingTaskIds: string[];
+
+  maxConcurrentAssignments: number;
+
+  hasConflict: boolean;
+};
+
 export type GanttTask = {
   id: string;
   title: string;
@@ -223,6 +238,8 @@ export type SprintPlanningSettings = {
   projectColumns: PlannerProjectColumn[];
   displayOptions: PlannerDisplayOptions;
   teamLegend: TeamLegendItem[];
+  resourceCapacities: Record<string, number>;
+  resourceDirectory: PlannerResource[];
 };
 
 export type SprintGanttData = {
